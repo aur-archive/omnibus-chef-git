@@ -1,0 +1,74 @@
+# $Id$
+# Maintainer: Chris Fordham <chris [at] fordham-nagy [dot] id [dot] au> aka flaccid
+# Package Build Source: https://github.com/flaccid/archlinux-packages/blob/master/omnibus-chef-git/PKGBUILD
+
+# Build a specific version by environment variable instead of editing this file:
+# sudo CHEF_VERSION=11.10.4 makepkg -s
+
+# omnibus-chef (FPM) uses directories under system locations such as /opt and /var,
+#     making user builds a pain for non-root users!
+#
+# directories that need permission for the user running makepkg:
+# /opt/chef
+# /var/cache/omnibus
+
+pkgname=omnibus-chef-git
+_pkgname=omnibus-chef
+pkgver=11.6.0.r595.g8877332
+_chefver=12.0.3
+pkgrel=2
+pkgdesc="Omnibus packaging for Opscode Chef (provides a Makeself installer for Chef $_chefver)."
+arch=(any)
+url="https://github.com/opscode/omnibus-chef"
+license=('Apache 2.0')
+install="$pkgname.install"
+makedepends=(git ruby-bundler)
+conflicts=(omnibus-chef)
+replaces=(omnibus-chef)
+source=(omnibus-chef::git+https://github.com/opscode/omnibus-chef.git#branch=master)
+md5sums=('SKIP')
+  
+: "${CHEF_VERSION:=$_chefver}"
+: "${CHEF_LOG_LEVEL:=info}"
+
+pkgver() {
+  cd "$srcdir/$_pkgname"
+  git describe --long | sed -r 's/([^-]*-g)/r\1/;s/-/./g'
+}
+  
+prepare() {
+  msg 'Creating system chef directories.'
+  mkdir -p /opt/chef /var/cache/omnibus
+  
+  msg 'Ensuring system chef directories are clean.'
+  rm -Rf /opt/chef/* /var/cache/omnibus/*
+
+  pushd "$srcdir/$_pkgname"
+    msg 'Preparing bundle...'
+    bundle install --binstubs
+    # bundle update omnibus-software omnibus
+    bundle exec omnibus clean chef
+  popd
+
+  # why is this needed?! (use the system's bundler)
+  mkdir -p /opt/chef/embedded/bin
+  ln -svf /usr/bin/bundle /opt/chef/embedded/bin/bundle
+
+  echo "override :chef,   version: \"$CHEF_VERSION\"" >> "$srcdir/$_pkgname/config/projects/chef.rb"
+}
+
+build() {
+  pushd "$srcdir/$_pkgname"
+    msg "Building omnibus chef (version $CHEF_VERSION)..."
+    bundle exec omnibus build chef -l "$CHEF_LOG_LEVEL"
+  popd
+}
+
+package() {
+  install -m755 -d "$pkgdir/usr/local/sbin"
+  cp -v "$srcdir/$_pkgname"/pkg/chef-* "$pkgdir/usr/local/sbin/"
+  rm -f "$srcdir/$_pkgname"/pkg/chef-*.metadata.json
+  cd "$pkgdir/usr/local/sbin" && ln -sv ./chef-${CHEF_VERSION}_0.arch.$(uname -r).sh ./chef-installer
+}
+
+# vim:set ts= 2 sw=2 Et:
